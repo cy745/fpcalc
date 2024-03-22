@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "fpcalc"
 include(":app")
- 
+include(":fpcalc")
