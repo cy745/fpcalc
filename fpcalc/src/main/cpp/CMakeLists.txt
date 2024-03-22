@@ -4,34 +4,64 @@
 
 # Sets the minimum CMake version required for this project.
 cmake_minimum_required(VERSION 3.22.1)
+cmake_policy(SET CMP0077 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE NEVER)
 
-# Declares the project name. The project name can be accessed via ${ PROJECT_NAME},
-# Since this is the top level CMakeLists.txt, the project name is also accessible
-# with ${CMAKE_PROJECT_NAME} (both CMake variables are in-sync within the top level
-# build script scope).
 project("fpcalc")
 
-# Creates and names a library, sets it as either STATIC
-# or SHARED, and provides the relative paths to its source code.
-# You can define multiple libraries, and CMake builds them for you.
-# Gradle automatically packages shared libraries with your APK.
-#
-# In this top level CMakeLists.txt, ${CMAKE_PROJECT_NAME} is used to define
-# the target library name; in the sub-module's CMakeLists.txt, ${PROJECT_NAME}
-# is preferred for the same purpose.
-#
-# In order to load a library into your app from Java/Kotlin, you must call
-# System.loadLibrary() and pass the name of the library defined here;
-# for GameActivity/NativeActivity derived applications, the same library name must be
-# used in the AndroidManifest.xml file.
-add_library(${CMAKE_PROJECT_NAME} SHARED
-        # List C/C++ source files with relative paths to this CMakeLists.txt.
-        fpcalc.cpp)
+# chromaprint 配置
+set(BUILD_TESTS OFF)
+set(BUILD_TOOLS ON)
+set(FFT_LIB "avfft")
+set(AUDIO_PROCESSOR_LIB "swresample")
 
-# Specifies libraries CMake should link to your target library. You
-# can link libraries from various origins, such as libraries defined in this
-# build script, prebuilt third-party libraries, or Android system libraries.
-target_link_libraries(${CMAKE_PROJECT_NAME}
-        # List libraries link to the target library
+set(FFMPEG_DIR ${CMAKE_SOURCE_DIR}/../../../libs/${ANDROID_ABI})
+
+# FFMpeg 路径配置
+set(FFMPEG_LIBS ${FFMPEG_DIR}/lib)
+set(FFMPEG_INCLUDE ${FFMPEG_DIR}/include)
+set(ENV{FFMPEG_DIR} ${FFMPEG_DIR})
+
+# 引入 FFMpeg
+add_library(lib_swresample STATIC IMPORTED)
+set_target_properties(lib_swresample PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libswresample.so)
+
+add_library(lib_avformat STATIC IMPORTED)
+set_target_properties(lib_avformat PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libavformat.so)
+
+add_library(lib_avcodec STATIC IMPORTED)
+set_target_properties(lib_avcodec PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libavcodec.so)
+
+add_library(lib_avutil STATIC IMPORTED)
+set_target_properties(lib_avutil PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libavutil.so)
+
+# 引入 chromaprint
+add_subdirectory(chromaprint)
+
+add_library(
+        ${CMAKE_PROJECT_NAME} SHARED
+        fpcalc.cpp
+)
+
+target_include_directories(
+        ${CMAKE_PROJECT_NAME} PRIVATE
+        ${FFMPEG_INCLUDE}
+        "chromaprint/src/cmd"
+)
+
+target_link_libraries(
+        ${CMAKE_PROJECT_NAME}
         android
-        log)
+        log
+        fpcalc_libs
+        chromaprint
+        lib_avformat
+        lib_avcodec
+        lib_avutil
+        lib_swresample
+)
