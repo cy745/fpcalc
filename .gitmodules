@@ -1,0 +1,6 @@
+[submodule "fpcalc/src/main/cpp/chromaprint"]
+	path = fpcalc/src/main/cpp/chromaprint
+	url = https://github.com/cy745/chromaprint
+[submodule "fpcalc/src/main/cpp/ffmpeg-android-maker"]
+	path = fpcalc/src/main/cpp/ffmpeg-android-maker
+	url = https://github.com/cy745/ffmpeg-android-maker
