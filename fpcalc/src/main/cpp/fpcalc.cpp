@@ -1,70 +1,466 @@
-#include <jni.h>
-#include <stdlib.h>
+//
+// Created by Qiu on 2024/3/24.
+//
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <vector>
-#include <android/log.h>
-#include "fpcalc.h"
+#include <sstream>
+#include <chrono>
+#include <chromaprint.h>
+#include "utils/scope_exit.h"
+#include "fpcalc_reader.h"
 
-#define LOGI(...)   __android_log_print((int)ANDROID_LOG_INFO, "CHROMAPRINT", __VA_ARGS__)
 
-static char *retval = NULL;
+extern void jni_output(const char *format, ...);
 
-char *append_string(char *old, const char *newone) {
-    const size_t old_len = old ? strlen(old) : 0;
-    const size_t newone_len = strlen(newone);
-    const size_t out_len = old_len + newone_len + 1;
-    char *out = (char *) malloc(out_len);
-    if (old_len) memcpy(out, old, old_len);
-    memcpy(out + old_len, newone, newone_len + 1);
-    if (old_len) free(old);
-    return out;
+#define fprintf(unused, ...) jni_output(__VA_ARGS__)
+#define printf(...)         jni_output(__VA_ARGS__)
+#define exit(value)         return;
+
+using namespace chromaprint;
+
+enum Format {
+    TEXT = 0,
+    JSON,
+    PLAIN,
+};
+
+static Format g_format = TEXT;
+static char *g_input_format = nullptr;
+static int g_input_channels = 1;
+static int g_input_sample_rate = 0;
+static double g_max_duration = 120;
+static double g_max_chunk_duration = 0;
+static bool g_overlap = false;
+static bool g_raw = false;
+static bool g_signed = false;
+static bool g_abs_ts = false;
+static bool g_ignore_errors = false;
+static ChromaprintAlgorithm g_algorithm = CHROMAPRINT_ALGORITHM_DEFAULT;
+
+
+const char *g_help =
+        "Usage: %s [OPTIONS] FILE [FILE...]\n"
+        "\n"
+        "Generate fingerprints from audio files/streams.\n"
+        "\n"
+        "Options:\n"
+        "  -format NAME   Set the input format name\n"
+        "  -rate NUM      Set the sample rate of the input audio\n"
+        "  -channels NUM  Set the number of channels in the input audio\n"
+        "  -length SECS   Restrict the duration of the processed input audio (default 120)\n"
+        "  -chunk SECS    Split the input audio into chunks of this duration\n"
+        "  -algorithm NUM Set the algorithm method (default 2)\n"
+        "  -overlap       Overlap the chunks slightly to make sure audio on the edges is fingerprinted\n"
+        "  -ts            Output UNIX timestamps for chunked results, useful when fingerprinting real-time audio stream\n"
+        "  -raw           Output fingerprints in the uncompressed format\n"
+        "  -signed        Change the uncompressed format from unsigned integers to signed (for pg_acoustid compatibility)\n"
+        "  -json          Print the output in JSON format\n"
+        "  -text          Print the output in text format\n"
+        "  -plain         Print the just the fingerprint in text format\n"
+        "  -version       Print version information\n";
+
+static void ParseOptions(int &argc, char **argv) {
+    int j = 1;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--")) {
+            while (++i < argc) {
+                argv[j++] = argv[i];
+            }
+        } else if ((!strcmp(argv[i], "-format") || !strcmp(argv[i], "-f")) && i + 1 < argc) {
+            g_input_format = argv[++i];
+        } else if ((!strcmp(argv[i], "-channels") || !strcmp(argv[i], "-c")) && i + 1 < argc) {
+            auto value = atoi(argv[i + 1]);
+            if (value > 0) {
+                g_input_channels = value;
+            } else {
+                fprintf(stderr, "ERROR: The argument for %s must be a non-zero positive number\n",
+                        argv[i]);
+                exit(2);
+            }
+            i++;
+        } else if ((!strcmp(argv[i], "-rate") || !strcmp(argv[i], "-r")) && i + 1 < argc) {
+            auto value = atoi(argv[i + 1]);
+            if (value >= 0) {
+                g_input_sample_rate = value;
+            } else {
+                fprintf(stderr, "ERROR: The argument for %s must be a positive number\n", argv[i]);
+                exit(2);
+            }
+            i++;
+        } else if ((!strcmp(argv[i], "-length") || !strcmp(argv[i], "-t")) && i + 1 < argc) {
+            auto value = atof(argv[i + 1]);
+            if (value >= 0) {
+                g_max_duration = value;
+            } else {
+                fprintf(stderr, "ERROR: The argument for %s must be a positive number\n", argv[i]);
+                exit(2);
+            }
+            i++;
+        } else if (!strcmp(argv[i], "-chunk") && i + 1 < argc) {
+            auto value = atof(argv[i + 1]);
+            if (value >= 0) {
+                g_max_chunk_duration = value;
+            } else {
+                fprintf(stderr, "ERROR: The argument for %s must be a positive number\n", argv[i]);
+                exit(2);
+            }
+            i++;
+        } else if ((!strcmp(argv[i], "-algorithm") || !strcmp(argv[i], "-a")) && i + 1 < argc) {
+            auto value = atoi(argv[i + 1]);
+            if (value >= 1 && value <= 5) {
+                g_algorithm = (ChromaprintAlgorithm) (value - 1);
+            } else {
+                fprintf(stderr, "ERROR: The argument for %s must be 1 - 5\n", argv[i]);
+                exit(2);
+            }
+            i++;
+        } else if (!strcmp(argv[i], "-text")) {
+            g_format = TEXT;
+        } else if (!strcmp(argv[i], "-json")) {
+            g_format = JSON;
+        } else if (!strcmp(argv[i], "-plain")) {
+            g_format = PLAIN;
+        } else if (!strcmp(argv[i], "-overlap")) {
+            g_overlap = true;
+        } else if (!strcmp(argv[i], "-ts")) {
+            g_abs_ts = true;
+        } else if (!strcmp(argv[i], "-raw")) {
+            g_raw = true;
+        } else if (!strcmp(argv[i], "-signed")) {
+            g_signed = true;
+        } else if (!strcmp(argv[i], "-ignore-errors")) {
+            g_ignore_errors = true;
+        } else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "-version")) {
+//#if defined(USE_SWRESAMPLE)
+//#define RESAMPLE_LIB_IDENT_IDENT LIBSWRESAMPLE_IDENT
+//#else
+//#define RESAMPLE_LIB_IDENT_IDENT LIBAVRESAMPLE_IDENT
+//#endif
+            fprintf(stdout, "fpcalc version %s (FFmpeg %s %s %s)\n", chromaprint_get_version(),
+                    "LIBAVCODEC_IDENT", "LIBAVFORMAT_IDENT", "RESAMPLE_LIB_IDENT_IDENT");
+            exit(0);
+        } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "-help") ||
+                   !strcmp(argv[i], "--help")) {
+            fprintf(stdout, g_help, argv[0]);
+            exit(0);
+        } else {
+            const auto len = strlen(argv[i]);
+            if (len > 1 && argv[i][0] == '-') {
+                fprintf(stderr, "ERROR: Unknown option %s\n", argv[i]);
+                exit(2);
+            } else {
+                argv[j++] = argv[i];
+            }
+        }
+    }
+    if (j < 2) {
+        fprintf(stderr, "ERROR: No input files\n");
+        exit(2);
+    }
+    argc = j;
 }
 
-void jni_output(const char *format, ...) {
-    va_list argptr;
-    va_start(argptr, format);
-    int size = vsnprintf(NULL, 0, format, argptr);
-    char buffer[size + 1];
-    vsprintf(buffer, format, argptr);
-    retval = append_string(retval, buffer);
-    LOGI("%s", retval);
-    va_end(argptr);
+void PrintResult(ChromaprintContext *ctx, MediaCodecReader &reader, bool first, double timestamp,
+                 double duration) {
+    std::string tmp_fp;
+    const char *fp;
+    bool dealloc_fp = false;
+
+    int size;
+    if (!chromaprint_get_raw_fingerprint_size(ctx, &size)) {
+        fprintf(stderr, "ERROR: Could not get the fingerprinting size\n");
+        exit(2);
+    }
+    if (size <= 0) {
+        if (first) {
+            fprintf(stderr, "ERROR: Empty fingerprint\n");
+            exit(2);
+        }
+        return;
+    }
+
+    if (g_raw) {
+        std::stringstream ss;
+        uint32_t *raw_fp_data = nullptr;
+        int raw_fp_size = 0;
+        if (!chromaprint_get_raw_fingerprint(ctx, &raw_fp_data, &raw_fp_size)) {
+            fprintf(stderr, "ERROR: Could not get the fingerprinting\n");
+            exit(2);
+        }
+        SCOPE_EXIT(chromaprint_dealloc(raw_fp_data));
+        for (int i = 0; i < raw_fp_size; i++) {
+            if (i > 0) {
+                ss << ',';
+            }
+            if (g_signed) {
+                ss << static_cast<int32_t>(raw_fp_data[i]);
+            } else {
+                ss << raw_fp_data[i];
+            }
+        }
+        tmp_fp = ss.str();
+        fp = tmp_fp.c_str();
+    } else {
+        char *tmp_fp2;
+        if (!chromaprint_get_fingerprint(ctx, &tmp_fp2)) {
+            fprintf(stderr, "ERROR: Could not get the fingerprinting\n");
+            exit(2);
+        }
+        fp = tmp_fp2;
+        dealloc_fp = true;
+    }
+    SCOPE_EXIT(if (dealloc_fp) { chromaprint_dealloc((void *) fp); });
+
+    if (g_max_chunk_duration == 0) {
+        duration = reader.GetDuration();
+        if (duration < 0.0) {
+            duration = 0.0;
+        } else {
+            duration /= 1000.0;
+        }
+    }
+
+    switch (g_format) {
+        case TEXT:
+            if (!first) {
+                printf("\n");
+            }
+            if (g_abs_ts) {
+                printf("TIMESTAMP=%.2f\n", timestamp);
+            }
+            printf("DURATION=%d\nFINGERPRINT=%s\n", int(duration), fp);
+            break;
+        case JSON:
+            if (g_max_chunk_duration != 0) {
+                if (g_raw) {
+                    printf("{\"timestamp\": %.2f, \"duration\": %.2f, \"fingerprint\": [%s]}\n",
+                           timestamp, duration, fp);
+                } else {
+                    printf("{\"timestamp\": %.2f, \"duration\": %.2f, \"fingerprint\": \"%s\"}\n",
+                           timestamp, duration, fp);
+                }
+            } else {
+                if (g_raw) {
+                    printf("{\"duration\": %.2f, \"fingerprint\": [%s]}\n", duration, fp);
+                } else {
+                    printf("{\"duration\": %.2f, \"fingerprint\": \"%s\"}\n", duration, fp);
+                }
+            }
+            break;
+        case PLAIN:
+            printf("%s\n", fp);
+            break;
+    }
+
+    fflush(stdout);
 }
 
-extern "C"
-JNIEXPORT jstring JNICALL
-Java_com_lalilu_fpcalc_Fpcalc_calc(JNIEnv *env, jobject thiz, jobjectArray args) {
-    int i;
-    int argc = env->GetArrayLength(args) + 1;
-    char **argv = new char *[argc];
-    std::vector<char *> argvadd;
-    argv[0] = new char[7];
-    strcpy(argv[0], "fpCalc");
-    argvadd.push_back(argv[0]);
-    retval = NULL;
-    for (i = 1; i < argc; i++) {
-        jstring
-                js = (jstring)
-                env->GetObjectArrayElement(args, i - 1);
-        const char *cs = env->GetStringUTFChars(js, 0);
-        argv[i] = new char[strlen(cs) + 1];
-        strcpy(argv[i], cs);
-        env->ReleaseStringUTFChars(js, cs);
-        env->DeleteLocalRef(js);
-        argvadd.push_back(argv[i]);
-    }
-    int rslt = fpcalc_main(argc, argv);
-    if (rslt == 1) {
-        jni_output("error_fpcalc_main=%d\n", rslt);
-    }
-    jstring final_result_value = env->NewStringUTF(retval);
-    delete retval;
-    retval = NULL;
+double GetCurrentTimestamp() {
+    const auto now = std::chrono::system_clock::now();
+    const auto usec = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+    return usec.count() / 1000000.0;
+}
 
-    for (i = 0; i < argc; i++) {
-        delete[] argvadd[i];
+void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, int fd) {
+    double ts = 0.0;
+    if (g_abs_ts) {
+        ts = GetCurrentTimestamp();
     }
-    delete[] argv;
 
-    return final_result_value;
+    if (!reader.Open(fd)) {
+        fprintf(stderr, "ERROR: %s\n", reader.GetError().c_str());
+        exit(2);
+    }
+
+    if (!chromaprint_start(ctx, reader.GetSampleRate(), reader.GetChannels())) {
+        fprintf(stderr, "ERROR: Could not initialize the fingerprinting process\n");
+        exit(2);
+    }
+
+    size_t stream_size = 0;
+    const size_t stream_limit = g_max_duration * reader.GetSampleRate();
+
+    size_t chunk_size = 0;
+    const size_t chunk_limit = g_max_chunk_duration * reader.GetSampleRate();
+
+    size_t extra_chunk_limit = 0;
+    double overlap = 0.0;
+    if (chunk_limit > 0 && g_overlap) {
+        extra_chunk_limit = chromaprint_get_delay(ctx);
+        overlap = chromaprint_get_delay_ms(ctx) / 1000.0;
+    }
+
+    bool first_chunk = true;
+    bool read_failed = false;
+    bool got_results = false;
+
+    bool decode_result = reader.loopRead([&](const int16_t *frame_data, size_t frame_size) {
+        bool stream_done = false;
+        if (stream_limit > 0) {
+            const auto remaining = stream_limit - stream_size;
+            if (frame_size > remaining) {
+                frame_size = remaining;
+                stream_done = true;
+            }
+        }
+        stream_size += frame_size;
+
+        if (frame_size == 0) {
+            if (stream_done) {
+                return LoopResultAction::FINISHED;
+            } else {
+                return LoopResultAction::CONTINUE;
+            }
+        }
+
+        bool chunk_done = false;
+        size_t first_part_size = frame_size;
+        if (chunk_limit > 0) {
+            const auto remaining = chunk_limit + extra_chunk_limit - chunk_size;
+            if (first_part_size > remaining) {
+                first_part_size = remaining;
+                chunk_done = true;
+            }
+        }
+
+        if (!chromaprint_feed(ctx, frame_data, first_part_size * reader.GetChannels())) {
+            fprintf(stderr, "ERROR: Could not process audio data\n");
+            return LoopResultAction::STOPPED;
+        }
+
+        chunk_size += first_part_size;
+
+        if (chunk_done) {
+            if (!chromaprint_finish(ctx)) {
+                fprintf(stderr, "ERROR: Could not finish the fingerprinting process\n");
+                return LoopResultAction::STOPPED;
+            }
+
+            const auto chunk_duration =
+                    (chunk_size - extra_chunk_limit) * 1.0 / reader.GetSampleRate() + overlap;
+            PrintResult(ctx, reader, first_chunk, ts, chunk_duration);
+            got_results = true;
+
+            if (g_abs_ts) {
+                ts = GetCurrentTimestamp();
+            } else {
+                ts += chunk_duration;
+            }
+
+            if (g_overlap) {
+                if (!chromaprint_clear_fingerprint(ctx)) {
+                    fprintf(stderr, "ERROR: Could not initialize the fingerprinting process\n");
+                    return LoopResultAction::STOPPED;
+                }
+                ts -= overlap;
+            } else {
+                if (!chromaprint_start(ctx, reader.GetSampleRate(), reader.GetChannels())) {
+                    fprintf(stderr, "ERROR: Could not initialize the fingerprinting process\n");
+                    return LoopResultAction::STOPPED;
+                }
+            }
+
+            if (first_chunk) {
+                extra_chunk_limit = 0;
+                first_chunk = false;
+            }
+
+            chunk_size = 0;
+        }
+
+        frame_data += first_part_size * reader.GetChannels();
+        frame_size -= first_part_size;
+
+        if (frame_size > 0) {
+            if (!chromaprint_feed(ctx, frame_data, frame_size * reader.GetChannels())) {
+                fprintf(stderr, "ERROR: Could not process audio data\n");
+                return LoopResultAction::STOPPED;
+            }
+        }
+
+        chunk_size += frame_size;
+
+        if (stream_done) {
+            return LoopResultAction::FINISHED;
+        }
+
+        return LoopResultAction::CONTINUE;
+    });
+
+    if (!decode_result) {
+        fprintf(stderr, "ERROR: %s\n", reader.GetError().c_str());
+        read_failed = true;
+        return;
+    }
+
+    if (!chromaprint_finish(ctx)) {
+        fprintf(stderr, "ERROR: Could not finish the fingerprinting process\n");
+        exit(2);
+    }
+
+    if (chunk_size > 0) {
+        const auto chunk_duration =
+                (chunk_size - extra_chunk_limit) * 1.0 / reader.GetSampleRate() + overlap;
+        PrintResult(ctx, reader, first_chunk, ts, chunk_duration);
+        got_results = true;
+    } else if (first_chunk) {
+        fprintf(stderr, "ERROR: Not enough audio data\n");
+        exit(2);
+    }
+
+    if (!g_ignore_errors) {
+        if (read_failed) {
+            exit(got_results ? 3 : 2);
+        }
+    }
+}
+
+int fpcalc_main(int argc, char **argv) {
+    ParseOptions(argc, argv);
+
+    MediaCodecReader reader;
+    if (g_input_format) {
+        if (!reader.SetInputFormat(g_input_format)) {
+            fprintf(stderr, "ERROR: Invalid format\n");
+            return 2;
+        }
+    }
+    if (g_input_channels) {
+        if (!reader.SetInputChannels(g_input_channels)) {
+            fprintf(stderr, "ERROR: Invalid number of channels\n");
+            return 2;
+        }
+    }
+    if (g_input_sample_rate) {
+        if (!reader.SetInputSampleRate(g_input_sample_rate)) {
+            fprintf(stderr, "ERROR: Invalid sample rate\n");
+            return 2;
+        }
+    }
+
+    ChromaprintContext *chromaprint_ctx = chromaprint_new(g_algorithm);
+    SCOPE_EXIT(chromaprint_free(chromaprint_ctx));
+
+    reader.SetOutputChannels(chromaprint_get_num_channels(chromaprint_ctx));
+    reader.SetOutputSampleRate(chromaprint_get_sample_rate(chromaprint_ctx));
+
+    int fd;
+    for (int i = 1; i < argc; i++) {
+        try {
+            fd = std::stoi(argv[i]);
+        } catch (const std::invalid_argument &e) {
+            fd = -1;
+            fprintf("ERROR: Invalid argument: %s", e.what());
+        } catch (const std::out_of_range &e) {
+            fd = -1;
+            fprintf("ERROR: Out of range: %s", e.what());
+        }
+        if (fd < 0) {
+            fprintf("ERROR: Invalid file descriptor: %s skipped!", argv[i]);
+            continue;
+        }
+        ProcessFile(chromaprint_ctx, reader, fd);
+    }
+    return 0;
 }

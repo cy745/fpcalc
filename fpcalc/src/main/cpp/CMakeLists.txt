@@ -16,7 +16,7 @@ project("fpcalc")
 
 # chromaprint 配置
 set(BUILD_TESTS OFF)
-set(BUILD_TOOLS ON)
+set(BUILD_TOOLS OFF)
 set(FFT_LIB "avfft")
 set(AUDIO_PROCESSOR_LIB "swresample")
 
@@ -46,19 +46,22 @@ add_subdirectory(chromaprint)
 add_library(
         ${CMAKE_PROJECT_NAME} SHARED
         fpcalc.cpp
+        fpcalc_jni.cpp
+        fpcalc_reader.cpp
 )
 
 target_include_directories(
         ${CMAKE_PROJECT_NAME} PRIVATE
         ${FFMPEG_INCLUDE}
-        "chromaprint/src/cmd"
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        "chromaprint/src"
 )
 
 target_link_libraries(
         ${CMAKE_PROJECT_NAME}
         android
+        mediandk
         log
-        fpcalc_libs
         chromaprint
         lib_avformat
         lib_avcodec
