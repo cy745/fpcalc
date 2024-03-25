@@ -64,7 +64,9 @@ void PrintResult(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
             }
         }
         tmp_fp = ss.str();
-        fp = tmp_fp.c_str();
+        fp = new char[tmp_fp.size() + 1];
+        strcat((char *) fp, tmp_fp.c_str());
+        dealloc_fp = true;
     } else {
         char *tmp_fp2;
         if (!chromaprint_get_fingerprint(ctx, &tmp_fp2)) {

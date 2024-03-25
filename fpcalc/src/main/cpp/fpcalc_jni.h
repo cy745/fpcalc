@@ -57,14 +57,18 @@ inline jobject structToJobject(JNIEnv *env, jobject thiz, FpcalcResult *result) 
     jfieldID source_channels_id = env->GetFieldID(resultClass, "sourceChannels", "I");
     jfieldID source_length_id = env->GetFieldID(resultClass, "sourceLength", "I");
 
-    jstring fingerprint = env->NewStringUTF(result->fingerprint);
-    jstring raw_fingerprint = env->NewStringUTF(result->raw_fingerprint);
     jstring error_message = env->NewStringUTF(result->error_message);
     free(result->error_message);
 
     jobject resultObj = env->AllocObject(resultClass);
-    env->SetObjectField(resultObj, fingerprint_id, fingerprint);
-    env->SetObjectField(resultObj, raw_fingerprint_id, raw_fingerprint);
+    if (result->fingerprint != nullptr) {
+        jstring fingerprint = env->NewStringUTF(result->fingerprint);
+        env->SetObjectField(resultObj, fingerprint_id, fingerprint);
+    }
+    if (result->raw_fingerprint != nullptr) {
+        jstring raw_fingerprint = env->NewStringUTF(result->raw_fingerprint);
+        env->SetObjectField(resultObj, raw_fingerprint_id, raw_fingerprint);
+    }
     env->SetObjectField(resultObj, error_message_id, error_message);
     env->SetLongField(resultObj, source_duration_ms_id, (jlong) result->source_duration_ms);
     env->SetIntField(resultObj, source_sample_rate_id, (jint) result->source_sample_rate);
