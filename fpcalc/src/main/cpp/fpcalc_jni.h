@@ -13,6 +13,7 @@
 
 struct FpcalcParams {
     int target_fd = -1;
+    const char *target_file_path = nullptr;
     int g_max_duration = 120;
     int g_algorithm = 2;
     bool g_raw = false;
@@ -30,8 +31,12 @@ struct FpcalcResult {
 };
 
 inline FpcalcParams *jobjectToStruct(JNIEnv *env, jobject thiz, jobject params) {
+    jboolean is_copy = JNI_TRUE;
+
     jclass paramsClass = env->FindClass("com/lalilu/fpcalc/FpcalcParams");
     jfieldID target_fd_id = env->GetFieldID(paramsClass, "targetFd", "I");
+    jfieldID target_file_path_id = env->GetFieldID(paramsClass, "targetFilePath",
+                                                   "Ljava/lang/String;");
     jfieldID g_max_duration_id = env->GetFieldID(paramsClass, "gMaxDuration", "I");
     jfieldID g_raw_id = env->GetFieldID(paramsClass, "gRaw", "Z");
     jfieldID g_signed_id = env->GetFieldID(paramsClass, "gSigned", "Z");
@@ -39,6 +44,9 @@ inline FpcalcParams *jobjectToStruct(JNIEnv *env, jobject thiz, jobject params) 
 
     FpcalcParams *params_ = new FpcalcParams();
     params_->target_fd = env->GetIntField(params, target_fd_id);
+
+    jstring target_file_path_str = (jstring) env->GetObjectField(params, target_file_path_id);
+    params_->target_file_path = env->GetStringUTFChars(target_file_path_str, &is_copy);
     params_->g_max_duration = env->GetIntField(params, g_max_duration_id);
     params_->g_raw = env->GetBooleanField(params, g_raw_id);
     params_->g_signed = env->GetBooleanField(params, g_signed_id);

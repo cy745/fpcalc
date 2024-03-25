@@ -167,19 +167,33 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
     }
 }
 
-static bool ProcessParams(FpcalcParams *params) {
+static bool ProcessParams(FpcalcParams *params, FpcalcResult *result) {
     g_algorithm = (ChromaprintAlgorithm) (params->g_algorithm - 1);
     g_raw = params->g_raw;
     g_max_duration = params->g_max_duration;
     g_signed = params->g_signed;
-    return params->target_fd > 0;
+
+    if (params->target_fd <= 0) {
+        if (nullptr == params->target_file_path) {
+            result->error_message = (char *) "ERROR: Target file path is not specified";
+        } else {
+            auto file = fopen(params->target_file_path, "r");
+            params->target_fd = fileno(file);
+        }
+    }
+
+    if (params->target_fd <= 0) {
+        result->error_message = (char *) "ERROR: Target file descriptor is not specified";
+        return false;
+    }
+
+    return true;
 }
 
 FpcalcResult *fpcalc_main(FpcalcParams *params) {
     FpcalcResult *result = new FpcalcResult();
 
-    if (!ProcessParams(params)) {
-        result->error_message = (char *) "File descriptor is not specified";
+    if (!ProcessParams(params, result)) {
         return result;
     }
 

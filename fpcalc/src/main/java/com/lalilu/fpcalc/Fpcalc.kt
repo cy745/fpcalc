@@ -10,7 +10,8 @@ object Fpcalc {
 }
 
 data class FpcalcParams(
-    val targetFd: Int,
+    val targetFd: Int = -1,
+    val targetFilePath: String? = null,
     val gMaxDuration: Int = 120,    // in second
     val gRaw: Boolean = false,
     val gSigned: Boolean = false,
