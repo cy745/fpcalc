@@ -22,7 +22,7 @@ bool MediaCodecReader::Open(int fd) {
     ssize_t ret = AMediaExtractor_setDataSourceFd(extractor_, fd, 0, length);
     if (ret < 0) {
         SetError("Error when set data source fd. return %d.", ret);
-        AMediaExtractor_delete(extractor_);
+        extractor_ = nullptr;
         return false;
     }
 
@@ -250,16 +250,16 @@ bool MediaCodecReader::loopRead(
 }
 
 void MediaCodecReader::Close() {
-    if (codec_) {
+    if (codec_ != nullptr) {
         AMediaCodec_stop(codec_);
         AMediaCodec_delete(codec_);
         codec_ = nullptr;
     }
-    if (extractor_) {
+    if (extractor_ != nullptr) {
         AMediaExtractor_delete(extractor_);
         extractor_ = nullptr;
     }
-    if (format_) {
+    if (format_ != nullptr) {
         AMediaFormat_delete(format_);
         format_ = nullptr;
     }

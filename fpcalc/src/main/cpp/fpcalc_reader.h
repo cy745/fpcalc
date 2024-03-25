@@ -29,28 +29,17 @@ public:
 
     bool loopRead(std::function<LoopResultAction(const int16_t *data, size_t size)> callback);
 
-    int GetSampleRate() const { return m_output_sample_rate; };
-
-    int GetChannels() const { return m_output_channels; };
-
     double GetDuration() const { return duration_ms; };
 
-    std::string GetError() const { return m_error; }
+    std::string GetError() const { return m_error; };
 
-    bool SetInputFormat(char *input_fmt) {
-        m_error = "No need to set this.";
-        return false;
-    };
+    int GetSampleRate() const { return sample_rate; };
 
-    bool SetInputChannels(int input_channels) {
-        m_input_channels = input_channels;
-        return true;
-    };
+    int GetChannels() const { return channel_count; };
 
-    bool SetInputSampleRate(int input_sample_rate) {
-        m_input_sample_rate = input_sample_rate;
-        return true;
-    };
+    int GetOutputSampleRate() const { return m_output_sample_rate; };
+
+    int GetOutputChannels() const { return m_output_channels; };
 
     void SetOutputSampleRate(int output_sample_rate) { m_output_sample_rate = output_sample_rate; }
 
@@ -58,9 +47,9 @@ public:
 
 
 private:
-    AMediaExtractor *extractor_;
-    AMediaFormat *format_;
-    AMediaCodec *codec_;
+    AMediaExtractor *extractor_ = nullptr;
+    AMediaFormat *format_ = nullptr;
+    AMediaCodec *codec_ = nullptr;
     std::unique_ptr<chromaprint::FFmpegAudioProcessor> m_converter;
 
     int audio_track_index_ = -1;    // 解封装后选择的音轨的index
@@ -70,9 +59,7 @@ private:
     int32_t sample_rate = -1;       // 解码前获取到音频的采样率
     int m_output_sample_rate;       // 解码且重采样后的目标采样率
     int m_output_channels;          // 解码且重采样后的目标声道数
-    int m_input_sample_rate;        // 用户指定的输入采样率
-    int m_input_channels;           // 用户指定的输入声道数
-    std::string m_error;
+    std::string m_error = "";
 };
 
 #endif //FPCALC_FPCALC_READER_H
