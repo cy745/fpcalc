@@ -2,7 +2,7 @@
 
 ## 简介
 
-针对Android平台的一个基于Chromaprint的音频指纹计算库，可计算音频指纹用于判断音频是否“相同”，可用音频指纹调用 [MusicBrainz](https://musicbrainz.org/) 的API查询音频的相关信息。
+针对Android平台的一个基于Chromaprint的音频指纹计算库，可计算音频指纹用于判断音频是否“相同”，可用音频指纹调用 [Acoustid](https://acoustid.org/webservice) 的API查询 [MusicBrainz](https://musicbrainz.org/) 库中所存有的与该音频相似的数据的相关信息。
 
 本仓库的核心代码基于Chromaprint的`fpcalc.cpp`。与原始实现不同，使用Android NDK提供的`MediaCodec`来替代`FFMpeg`的`AvCodec`进行音频解码。降低了动态库的大小。同时针对Android平台，提供了使用`FileDescriptor`读取文件的方法，以便更好地集成到Android应用中。
 
@@ -19,27 +19,49 @@
 
 ## 如何使用
 
+[![](https://jitpack.io/v/cy745/fpcalc.svg)](https://jitpack.io/#cy745/fpcalc)
+
 ```gradle
 // 导入jitpack源
 maven(url = "https://jitpack.io")
 
-// 所需使用的project中引入library
+// 所需使用的project中引入library 
 implementation("com.github.cy745:fpcalc:<version>")
 ```
 
 ```kotlin
 // 配置传入fpcalc的参数，fd为文件的FileDescriptor
-val args: Array<String> = arrayOf("-json", "$fd")
+val params: FpcalcParams = FpcalcParams(
+  targetFd = fd    // Int
+)
+
+// 或者传入文件路径
+val params: FpcalcParams = FpcalcParams(
+  targetFilePath = filePath    // String
+)
 
 // 调用Fpcalc
-val result: String = Fpcalc.calc(args)
-```
+val result: FpcalcResult = Fpcalc.calc(params)
 
-result的格式根据传入参数可能不同，需要注意，以下是JSON格式的示例
-```json
-{
-  "duration": 42.62,
-  "fingerprint": "AQABN0myKWmYBkJwvEfDo-gcHWGeQ0eYo8N__GjeoT_y5-jh_eiP_PjR48djvEc-G_6gXcHT4McDfUeYvWiPozeabkEO8QryhMrx40c_ozmB5kF5tDHCfDku3NAO0-hz6Md_9EoD68MHP8V_Qz_-oEf-4ymOEp8uXMIdoXmxC8d7tDsS5jHSH7UY_Dt6o_mCbpuH5vjxGTfR50hz-ERn4SX6HFYOHzlhBWGJQ8tn9AzCfPHQcsdn9EZKDoco32jW4B1KQjzyD5aIw8cP__iPVFvRozbE5-iDdonQnMYnhGVwhC-H5_iORg_0zuiO4zy65_CHH-IP60c_HK0FLc_Ro3mO44VP6OiPH9fxQzx-pCcO67hIHH7xwd1RPuiPKWcO5kb67Jh0RdCXoDdikTm-FI10XMyJIyeJN2OgfTquCYcuGDm-4ceRC-ehHn-D4zP84oeI6oPe4T8uI_qD52gfnNKA-Pjg44RxHpR8_PAPlTjSE_8RHN3xQyV-vEcv-BNu-DMu4oj2Cz2DyoH1oM-OSpQMvyhv_MiP0mjiLC7-F_mN5j2q7UEPPxOcz3h_JMuJL0d-ouGYwmoQ6tDVICSzw-dxYsdRyziu4zeebMcnNP_QA_mhKiR6Huk9dNVw_MibQeuQ80T34TKa_EfxEnk_9EZzvC9uHqVepIf7Fz16_Dhw-IcVH8cF66gBRyBgBipimHBGEUIEwkQYIp0EhmhDLBCGOCIUIYAoJ4QgTgwilBCIEKIUJAY4Ax0yAChCiAWAUGkcEUqJYpFBAACnhHLGAKEEEAIKxawQgEBliRAAWCGMQEYABpQCzBJBHCCAQEMEEcIIZRChgDBAxBWcKGEcE0YIKywQDhglCARAASaIQM4BghQRBBupIFAiOKSIFFtihpAgDhjCmGPYGoeAskwYy4hCgDDLDDEGMIIQAoIIAoQUhAhChFDCMGCEAYQBhzxxgDhjoXREEMCAMcIJgJyEQhggARGECIaMAA4AIBQSRDxCiBMG"
+// 输入的FpcalcParams定义如下
+data class FpcalcParams(
+    val targetFd: Int = -1,
+    val targetFilePath: String? = null,
+    val gMaxDuration: Int = 120,    // in second
+    val gRaw: Boolean = false,
+    val gSigned: Boolean = false,
+    val gAlgorithm: Int = 2,
+)
+
+// 输出的FpcalcResult定义如下
+class FpcalcResult {
+    var fingerprint: String? = null
+    var rawFingerprint: String? = null
+    var errorMessage: String? = null
+    var sourceDurationMs: Long = 0
+    var sourceSampleRate: Int = 0
+    var sourceChannels: Int = 0
+    var sourceLength: Int = 0
 }
 ```
 
@@ -57,9 +79,9 @@ git submodule update --init --recursive
 
 ### 后续任务
 
-- 解决各种闪退问题
-- 完善API，降低Android平台使用的难度
-- 完全剔除对libavutils的依赖（目前还有resample部分依赖libavutils用于缓冲区的创建）
+- ✅ 解决各种闪退问题 
+- ✅ 完善API，降低Android平台使用的难度
+- 🔘 完全剔除对libavutils的依赖（目前还有resample部分依赖libavutils用于缓冲区的创建）
 - ......
 
 ## 贡献与反馈
