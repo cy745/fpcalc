@@ -6,9 +6,26 @@ object Fpcalc {
         System.loadLibrary("fpcalc")
     }
 
-    /**
-     * A native method that is implemented by the 'fpcalc' native library,
-     * which is packaged with this application.
-     */
-    external fun calc(args: Array<String>): String
+    external fun calc(params: FpcalcParams): FpcalcResult
+}
+
+data class FpcalcParams(
+    val targetFd: Int,
+    val gMaxDuration: Int = 120,    // in second
+    val gRaw: Boolean = false,
+    val gSigned: Boolean = false,
+    val gAlgorithm: Int = 2,
+)
+
+class FpcalcResult {
+    var fingerprint: String? = null
+    var rawFingerprint: String? = null
+    var errorMessage: String? = null
+    var sourceDurationMs: Long = 0
+    var sourceSampleRate: Int = 0
+    var sourceChannels: Int = 0
+    var sourceLength: Int = 0
+    override fun toString(): String {
+        return "FpcalcResult(fingerprint=$fingerprint, rawFingerprint=$rawFingerprint, errorMessage=$errorMessage, sourceDurationMs=$sourceDurationMs, sourceSampleRate=$sourceSampleRate, sourceChannels=$sourceChannels, sourceLength=$sourceLength)"
+    }
 }
