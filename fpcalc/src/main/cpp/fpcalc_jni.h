@@ -40,10 +40,10 @@ struct FpcalcResult {
         int char_size = strlen(str);
         if (is_raw) {
             raw_fingerprint = (char *) malloc(char_size * sizeof(char));
-            return strcat(raw_fingerprint, str) != nullptr;
+            return strcpy(raw_fingerprint, str) != nullptr;
         } else {
             fingerprint = (char *) malloc(char_size * sizeof(char));
-            return strcat(fingerprint, str) != nullptr;
+            return strcpy(fingerprint, str) != nullptr;
         }
     }
 
