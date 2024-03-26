@@ -7,6 +7,7 @@
 #include <jni.h>
 #include <stdlib.h>
 #include <android/log.h>
+#include <string.h>
 
 #define LOGI(...)   __android_log_print((int)ANDROID_LOG_INFO, "FPCALC", __VA_ARGS__)
 #define LOGE(...)   __android_log_print((int)ANDROID_LOG_ERROR, "FPCALC", __VA_ARGS__)
@@ -21,13 +22,58 @@ struct FpcalcParams {
 };
 
 struct FpcalcResult {
-    const char *fingerprint = nullptr;
-    const char *raw_fingerprint = nullptr;
-    char *error_message = new char[1024];
+    char *fingerprint = nullptr;
+    char *raw_fingerprint = nullptr;
+    char *error_message = nullptr;
     long source_duration_ms = 0;
     int source_sample_rate = 0;
     int source_channels = 0;
     int source_length = 0;
+
+    ~FpcalcResult() {
+        free((void *) fingerprint);
+        free((void *) raw_fingerprint);
+        free((void *) error_message);
+    }
+
+    bool printFingerprint(char *str, bool is_raw) {
+        int char_size = strlen(str);
+        if (is_raw) {
+            raw_fingerprint = (char *) malloc(char_size * sizeof(char));
+            return strcat(raw_fingerprint, str) != nullptr;
+        } else {
+            fingerprint = (char *) malloc(char_size * sizeof(char));
+            return strcat(fingerprint, str) != nullptr;
+        }
+    }
+
+    bool printError(const char *format, ...) {
+        va_list args;
+        va_start(args, format);
+
+        int max_length = 100;
+        error_message = (char *) malloc(max_length * sizeof(char)); // 分配内存
+        if (error_message == nullptr) {
+            LOGE("Memory allocation for error_message failed.");
+            va_end(args);
+            return false;
+        }
+        int result = snprintf(error_message, max_length, format, args);
+        if (result > max_length) {
+            error_message = (char *) realloc(
+                    error_message, (result + 1) * sizeof(char)); // 重新分配内存以容纳完整的字符串
+
+            if (error_message == nullptr) {
+                LOGE("Memory reallocation for error_message failed");
+                va_end(args);
+                return false;
+            }
+
+            result = snprintf(error_message, result + 1, format, args); // 再次尝试打印字符串
+        }
+        va_end(args);
+        return true;
+    }
 };
 
 inline FpcalcParams *jobjectToStruct(JNIEnv *env, jobject thiz, jobject params) {
@@ -56,28 +102,32 @@ inline FpcalcParams *jobjectToStruct(JNIEnv *env, jobject thiz, jobject params) 
 
 inline jobject structToJobject(JNIEnv *env, jobject thiz, FpcalcResult *result) {
     jclass resultClass = env->FindClass("com/lalilu/fpcalc/FpcalcResult");
-    jfieldID fingerprint_id = env->GetFieldID(resultClass, "fingerprint", "Ljava/lang/String;");
-    jfieldID raw_fingerprint_id = env->GetFieldID(resultClass, "rawFingerprint",
-                                                  "Ljava/lang/String;");
-    jfieldID error_message_id = env->GetFieldID(resultClass, "errorMessage", "Ljava/lang/String;");
+    jobject resultObj = env->AllocObject(resultClass);
+
+    if (result->error_message != nullptr) {
+        jfieldID error_message_id = env->GetFieldID(resultClass, "errorMessage",
+                                                    "Ljava/lang/String;");
+        jstring error_message = env->NewStringUTF(result->error_message);
+        env->SetObjectField(resultObj, error_message_id, error_message);
+    }
+
+    if (result->fingerprint != nullptr) {
+        jfieldID fingerprint_id = env->GetFieldID(resultClass, "fingerprint", "Ljava/lang/String;");
+        jstring fingerprint = env->NewStringUTF(result->fingerprint);
+        env->SetObjectField(resultObj, fingerprint_id, fingerprint);
+    }
+
+    if (result->raw_fingerprint != nullptr) {
+        jfieldID raw_fingerprint_id = env->GetFieldID(resultClass, "rawFingerprint",
+                                                      "Ljava/lang/String;");
+        jstring raw_fingerprint = env->NewStringUTF(result->raw_fingerprint);
+        env->SetObjectField(resultObj, raw_fingerprint_id, raw_fingerprint);
+    }
+
     jfieldID source_duration_ms_id = env->GetFieldID(resultClass, "sourceDurationMs", "J");
     jfieldID source_sample_rate_id = env->GetFieldID(resultClass, "sourceSampleRate", "I");
     jfieldID source_channels_id = env->GetFieldID(resultClass, "sourceChannels", "I");
     jfieldID source_length_id = env->GetFieldID(resultClass, "sourceLength", "I");
-
-    jstring error_message = env->NewStringUTF(result->error_message);
-    free(result->error_message);
-
-    jobject resultObj = env->AllocObject(resultClass);
-    if (result->fingerprint != nullptr) {
-        jstring fingerprint = env->NewStringUTF(result->fingerprint);
-        env->SetObjectField(resultObj, fingerprint_id, fingerprint);
-    }
-    if (result->raw_fingerprint != nullptr) {
-        jstring raw_fingerprint = env->NewStringUTF(result->raw_fingerprint);
-        env->SetObjectField(resultObj, raw_fingerprint_id, raw_fingerprint);
-    }
-    env->SetObjectField(resultObj, error_message_id, error_message);
     env->SetLongField(resultObj, source_duration_ms_id, (jlong) result->source_duration_ms);
     env->SetIntField(resultObj, source_sample_rate_id, (jint) result->source_sample_rate);
     env->SetIntField(resultObj, source_channels_id, (jint) result->source_channels);

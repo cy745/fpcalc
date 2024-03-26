@@ -31,16 +31,15 @@ const char *g_help =
 
 void PrintResult(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult *result) {
     std::string tmp_fp;
-    const char *fp;
-    bool dealloc_fp = false;
+    char *fp;
 
     int size;
     if (!chromaprint_get_raw_fingerprint_size(ctx, &size)) {
-        sprintf(result->error_message, "ERROR: Could not get the fingerprinting size\n");
+        result->printError("ERROR: Could not get the fingerprinting size\n");
         return;
     }
     if (size <= 0) {
-        sprintf(result->error_message, "ERROR: Empty fingerprint\n");
+        result->printError("ERROR: Empty fingerprint\n");
         return;
     }
 
@@ -49,7 +48,7 @@ void PrintResult(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
         uint32_t *raw_fp_data = nullptr;
         int raw_fp_size = 0;
         if (!chromaprint_get_raw_fingerprint(ctx, &raw_fp_data, &raw_fp_size)) {
-            sprintf(result->error_message, "ERROR: Could not get the fingerprinting\n");
+            result->printError("ERROR: Could not get the fingerprinting\n");
             return;
         }
         SCOPE_EXIT(chromaprint_dealloc(raw_fp_data));
@@ -64,30 +63,23 @@ void PrintResult(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
             }
         }
         tmp_fp = ss.str();
-        fp = new char[tmp_fp.size() + 1];
-        strcat((char *) fp, tmp_fp.c_str());
-        dealloc_fp = true;
+        fp = (char *) tmp_fp.c_str();
     } else {
-        char *tmp_fp2;
-        if (!chromaprint_get_fingerprint(ctx, &tmp_fp2)) {
-            sprintf(result->error_message, "ERROR: Could not get the fingerprinting\n");
+        if (!chromaprint_get_fingerprint(ctx, &fp)) {
+            result->printError("ERROR: Could not get the fingerprinting\n");
             return;
         }
-        fp = tmp_fp2;
-        dealloc_fp = true;
     }
-    SCOPE_EXIT(if (dealloc_fp) { chromaprint_dealloc((void *) fp); });
+    SCOPE_EXIT(chromaprint_dealloc((void *) fp););
 
-    if (g_raw) {
-        result->raw_fingerprint = fp;
-    } else {
-        result->fingerprint = fp;
+    if (!result->printFingerprint(fp, g_raw)) {
+        result->printError("can't not malloc for raw fingerprint");
     }
 }
 
 void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult *result, int fd) {
     if (!reader.Open(fd)) {
-        sprintf(result->error_message, "ERROR: %s\n", reader.GetError().c_str());
+        result->printError("ERROR: %s\n", reader.GetError().c_str());
         return;
     }
 
@@ -96,7 +88,7 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
     result->source_duration_ms = reader.GetDuration();
 
     if (!chromaprint_start(ctx, reader.GetOutputSampleRate(), reader.GetOutputChannels())) {
-        sprintf(result->error_message, "ERROR: Could not initialize the fingerprinting process\n");
+        result->printError("ERROR: Could not initialize the fingerprinting process\n");
         return;
     }
 
@@ -126,7 +118,7 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
         size_t first_part_size = frame_size;
 
         if (!chromaprint_feed(ctx, frame_data, first_part_size * reader.GetOutputChannels())) {
-            sprintf(result->error_message, "ERROR: Could not process audio data\n");
+            result->printError("ERROR: Could not process audio data\n");
             return LoopResultAction::STOPPED;
         }
 
@@ -136,7 +128,7 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
 
         if (frame_size > 0) {
             if (!chromaprint_feed(ctx, frame_data, frame_size * reader.GetOutputChannels())) {
-                sprintf(result->error_message, "ERROR: Could not process audio data\n");
+                result->printError("ERROR: Could not process audio data\n");
                 return LoopResultAction::STOPPED;
             }
         }
@@ -151,19 +143,20 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
     });
 
     if (!decode_result) {
-        sprintf(result->error_message, "ERROR: %s\n", reader.GetError().c_str());
+        result->printError("ERROR: %s\n", reader.GetError().c_str());
         return;
     }
 
     if (!chromaprint_finish(ctx)) {
-        sprintf(result->error_message, "ERROR: Could not finish the fingerprinting process\n");
+        result->printError("ERROR: Could not finish the fingerprinting process\n");
         return;
     }
 
     if (chunk_size > 0) {
+        LOGI("chunk_size: %d", chunk_size);
         PrintResult(ctx, reader, result);
     } else {
-        sprintf(result->error_message, "ERROR: Not enough audio data\n");
+        result->printError("ERROR: Not enough audio data\n");
     }
 }
 
@@ -175,7 +168,7 @@ static bool ProcessParams(FpcalcParams *params, FpcalcResult *result) {
 
     if (params->target_fd <= 0) {
         if (nullptr == params->target_file_path) {
-            result->error_message = (char *) "ERROR: Target file path is not specified";
+            result->printError("ERROR: Target file path is not specified\n");
         } else {
             auto file = fopen(params->target_file_path, "r");
             params->target_fd = fileno(file);
@@ -183,7 +176,7 @@ static bool ProcessParams(FpcalcParams *params, FpcalcResult *result) {
     }
 
     if (params->target_fd <= 0) {
-        result->error_message = (char *) "ERROR: Target file descriptor is not specified";
+        result->printError("ERROR: Target file descriptor is not specified\n");
         return false;
     }
 
