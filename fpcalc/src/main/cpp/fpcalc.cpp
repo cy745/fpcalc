@@ -13,21 +13,10 @@
 
 using namespace chromaprint;
 
-static double g_max_duration = 120;
 static bool g_raw = false;
 static bool g_signed = false;
+static size_t g_max_duration = 120;
 static ChromaprintAlgorithm g_algorithm = CHROMAPRINT_ALGORITHM_DEFAULT;
-
-const char *g_help =
-        "Usage: %s [OPTIONS] FILE [FILE...]\n"
-        "\n"
-        "Generate fingerprints from audio files/streams.\n"
-        "\n"
-        "Options:\n"
-        "  -length SECS   Restrict the duration of the processed input audio (default 120)\n"
-        "  -algorithm NUM Set the algorithm method (default 2)\n"
-        "  -raw           Output fingerprints in the uncompressed format\n"
-        "  -signed        Change the uncompressed format from unsigned integers to signed (for pg_acoustid compatibility)\n";
 
 void PrintResult(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult *result) {
     std::string tmp_fp;
@@ -92,7 +81,6 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
         return;
     }
 
-    size_t chunk_size = 0;
     size_t stream_size = 0;
     const size_t stream_limit = g_max_duration * reader.GetOutputSampleRate();
 
@@ -117,23 +105,21 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
 
         size_t first_part_size = frame_size;
 
-        if (!chromaprint_feed(ctx, frame_data, first_part_size * reader.GetOutputChannels())) {
+        if (!chromaprint_feed(ctx, frame_data,
+                              (int) first_part_size * reader.GetOutputChannels())) {
             result->printError("ERROR: Could not process audio data\n");
             return LoopResultAction::STOPPED;
         }
 
-        chunk_size += first_part_size;
         frame_data += first_part_size * reader.GetOutputChannels();
         frame_size -= first_part_size;
 
         if (frame_size > 0) {
-            if (!chromaprint_feed(ctx, frame_data, frame_size * reader.GetOutputChannels())) {
+            if (!chromaprint_feed(ctx, frame_data, (int) frame_size * reader.GetOutputChannels())) {
                 result->printError("ERROR: Could not process audio data\n");
                 return LoopResultAction::STOPPED;
             }
         }
-
-        chunk_size += frame_size;
 
         if (stream_done) {
             return LoopResultAction::FINISHED;
@@ -152,8 +138,7 @@ void ProcessFile(ChromaprintContext *ctx, MediaCodecReader &reader, FpcalcResult
         return;
     }
 
-    if (chunk_size > 0) {
-        LOGI("chunk_size: %d", chunk_size);
+    if (stream_size > 0) {
         PrintResult(ctx, reader, result);
     } else {
         result->printError("ERROR: Not enough audio data\n");
@@ -184,7 +169,7 @@ static bool ProcessParams(FpcalcParams *params, FpcalcResult *result) {
 }
 
 FpcalcResult *fpcalc_main(FpcalcParams *params) {
-    FpcalcResult *result = new FpcalcResult();
+    auto *result = new FpcalcResult();
 
     if (!ProcessParams(params, result)) {
         return result;

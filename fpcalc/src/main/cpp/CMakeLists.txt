@@ -12,6 +12,9 @@ set(CMAKE_BUILD_TYPE "RELEASE")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Os")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Os")
 
+#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
+
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
@@ -35,10 +38,10 @@ set(ENV{KISSFFT_ROOT} ${CMAKE_SOURCE_DIR}/chromaprint/src/3rdparty/kissfft)
 
 # 引入 FFMpeg
 add_library(lib_swresample STATIC IMPORTED)
-set_target_properties(lib_swresample PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libswresample.so)
+set_target_properties(lib_swresample PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libswresample.a)
 
 add_library(lib_avutil STATIC IMPORTED)
-set_target_properties(lib_avutil PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libavutil.so)
+set_target_properties(lib_avutil PROPERTIES IMPORTED_LOCATION ${FFMPEG_LIBS}/libavutil.a)
 
 # 引入 chromaprint
 add_subdirectory(chromaprint)

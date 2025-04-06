@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.net.toUri
 import com.blankj.utilcode.util.FileIOUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -32,16 +33,19 @@ class MainActivity : AppCompatActivity() {
             FileIOUtils.writeFileFromIS(tempFile, inputStream)
             // 使用openRawResourceFd获取到的fd用于Fpcalc进行读取会导致MediaExtractor创建失败
             // 故先通过读取流后，写入到cache文件夹中，再将该文件的path用于读取测试
-
-            val params: FpcalcParams = FpcalcParams(targetFilePath = tempFile.path)
-            val result: FpcalcResult = Fpcalc.calc(params)
-
             val startTime = System.currentTimeMillis()
+            val fileDescriptor = contentResolver.openFileDescriptor(tempFile.toUri(), "r")
+
+            val result: FpcalcResult? = fileDescriptor?.use {
+                val params = FpcalcParams(targetFd = it.fd, gMaxDuration = 120)
+                Fpcalc.calc(params)
+            }
 
             withContext(Dispatchers.Main) {
                 this@MainActivity.findViewById<TextView>(R.id.result).text = """
-                    startTime: $startTime
-                    result:$result
+                    startTime: $startTime,
+                    costTime:${System.currentTimeMillis() - startTime},
+                    result:$result,
                 """.trimIndent()
             }
         }

@@ -5,9 +5,9 @@
 #define FPCALC_FPCALC_JNI_H
 
 #include <jni.h>
-#include <stdlib.h>
+#include <cstdlib>
 #include <android/log.h>
-#include <string.h>
+#include <cstring>
 
 #define LOGI(...)   __android_log_print((int)ANDROID_LOG_INFO, "FPCALC", __VA_ARGS__)
 #define LOGE(...)   __android_log_print((int)ANDROID_LOG_ERROR, "FPCALC", __VA_ARGS__)
@@ -37,7 +37,7 @@ struct FpcalcResult {
     }
 
     bool printFingerprint(char *str, bool is_raw) {
-        int char_size = strlen(str);
+        size_t char_size = strlen(str);
         if (is_raw) {
             raw_fingerprint = (char *) malloc(char_size * sizeof(char));
             return strcpy(raw_fingerprint, str) != nullptr;
@@ -88,11 +88,14 @@ inline FpcalcParams *jobjectToStruct(JNIEnv *env, jobject thiz, jobject params) 
     jfieldID g_signed_id = env->GetFieldID(paramsClass, "gSigned", "Z");
     jfieldID g_algorithm = env->GetFieldID(paramsClass, "gAlgorithm", "I");
 
-    FpcalcParams *params_ = new FpcalcParams();
+    auto *params_ = new FpcalcParams();
     params_->target_fd = env->GetIntField(params, target_fd_id);
 
-    jstring target_file_path_str = (jstring) env->GetObjectField(params, target_file_path_id);
-    params_->target_file_path = env->GetStringUTFChars(target_file_path_str, &is_copy);
+    auto target_file_path_str = (jstring) env->GetObjectField(params, target_file_path_id);
+    if (target_file_path_str != nullptr) {
+        params_->target_file_path = env->GetStringUTFChars(target_file_path_str, &is_copy);
+    }
+
     params_->g_max_duration = env->GetIntField(params, g_max_duration_id);
     params_->g_raw = env->GetBooleanField(params, g_raw_id);
     params_->g_signed = env->GetBooleanField(params, g_signed_id);

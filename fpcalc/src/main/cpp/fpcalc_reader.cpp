@@ -27,7 +27,7 @@ bool MediaCodecReader::Open(int fd) {
     }
 
     // 通过获取track的mimeType，获取音频track的index
-    int track_cnt = AMediaExtractor_getTrackCount(extractor_);
+    size_t track_cnt = AMediaExtractor_getTrackCount(extractor_);
     const char *info;
     for (int i = 0; i < track_cnt; i++) {
         format_ = AMediaExtractor_getTrackFormat(extractor_, i);
@@ -49,13 +49,14 @@ bool MediaCodecReader::Open(int fd) {
     }
 
     AMediaFormat_getString(format_, AMEDIAFORMAT_KEY_MIME, &info);
+    AMediaFormat_getInt32(format_, AMEDIAFORMAT_KEY_BIT_RATE, &bit_rate);
     AMediaFormat_getInt32(format_, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &channel_count);
     AMediaFormat_getInt32(format_, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sample_rate);
     AMediaFormat_getInt64(format_, AMEDIAFORMAT_KEY_DURATION, &duration_us);
-    duration_ms = duration_us / 1000.0;
+    duration_ms = duration_us / 1000;
 
-    LOGI("Create codec for %s. Audio Info: channel_count: %d sample_rate: %d duration_ms: %f", info,
-         channel_count, sample_rate, duration_ms);
+    LOGI("Create codec for %s. Audio Info: bitrate: %d, channel_count: %d, sample_rate: %d, duration_ms: %lld",
+         info, bit_rate, channel_count, sample_rate, duration_ms);
     codec_ = AMediaCodec_createDecoderByType(info);
     if (!codec_) {
         SetError("Failed to create codec for %s.", info);
@@ -112,9 +113,8 @@ bool MediaCodecReader::Open(int fd) {
     return true;
 }
 
-
 bool MediaCodecReader::loopRead(
-        std::function<LoopResultAction(const int16_t *data, size_t size)> callback) {
+        const std::function<LoopResultAction(const int16_t *data, size_t size)> &callback) {
     bool extractor_eos = false;
     bool decoder_eos = false;
     int input_index = 0;
@@ -145,7 +145,7 @@ bool MediaCodecReader::loopRead(
                 if (sample_size < 0) {
                     sample_size = 0;
                     extractor_eos = true;
-                    LOGI("Video extractor has got eof. queue EOS");
+                    LOGI("Extractor has got eof. queue EOS");
                 }
                 presentation_time = AMediaExtractor_getSampleTime(extractor_);
                 AMediaCodec_queueInputBuffer(codec_, input_index, 0, sample_size, presentation_time,
@@ -178,9 +178,9 @@ bool MediaCodecReader::loopRead(
                 if (!decoder_eos) {
                     output = AMediaCodec_getOutputBuffer(codec_, output_index, nullptr);
 
-                    // uint8_t到int16_t的转换使buffer总数减半，故除二；
-                    // 需要计算per_channel，故除channel_count;
-                    int nb_samples_per_channel = bufferInfo.size / 2 / channel_count;
+                    // uint8_t到int16_t的转换
+                    size_t nb_samples_per_channel =
+                            bufferInfo.size * sizeof(uint8_t) / sizeof(int16_t) / channel_count;
 
                     if (m_converter) {
                         int ret = 0;
@@ -188,20 +188,21 @@ bool MediaCodecReader::loopRead(
                             int linsize;
                             av_freep(&m_convert_buffer[0]);
                             m_convert_buffer_nb_samples = std::max(1024 * 8,
-                                                                   nb_samples_per_channel);
+                                                                   (int) nb_samples_per_channel);
                             ret = av_samples_alloc(m_convert_buffer, &linsize, channel_count,
                                                    m_convert_buffer_nb_samples,
                                                    AV_SAMPLE_FMT_S16,
                                                    1);
                             if (ret < 0) {
-                                SetError("Couldn't allocate audio converter buffer", ret);
+                                SetError("Couldn't allocate audio converter buffer error code: %d",
+                                         ret);
                                 return false;
                             }
                         }
                         auto nb_samples = m_converter->Convert(m_convert_buffer,
                                                                m_convert_buffer_nb_samples,
                                                                (const uint8_t **) &output,
-                                                               nb_samples_per_channel);
+                                                               (int) nb_samples_per_channel);
                         if (nb_samples < 0) {
                             SetError("Couldn't convert audio, ret: %d", ret);
                             return false;

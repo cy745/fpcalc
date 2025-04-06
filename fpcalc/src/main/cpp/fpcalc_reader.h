@@ -27,9 +27,11 @@ public:
 
     void Close();
 
-    bool loopRead(std::function<LoopResultAction(const int16_t *data, size_t size)> callback);
+    bool loopRead(
+            const std::function<LoopResultAction(const int16_t *data, size_t size)> &callback
+    );
 
-    double GetDuration() const { return duration_ms; };
+    long GetDuration() const { return (long) duration_ms; };
 
     std::string GetError() const { return m_error; };
 
@@ -53,13 +55,14 @@ private:
     std::unique_ptr<chromaprint::FFmpegAudioProcessor> m_converter;
 
     int audio_track_index_ = -1;    // 解封装后选择的音轨的index
-    double duration_ms = 0;        // 解码前获取到音频的时长(us微秒)
+    int64_t duration_ms = 0;        // 解码前获取到音频的时长(ms毫秒)
     int64_t duration_us = 0;        // 解码前获取到音频的时长(us微秒)
     int32_t channel_count = -1;     // 解码前获取到音频的声道数
     int32_t sample_rate = -1;       // 解码前获取到音频的采样率
+    int32_t bit_rate = -1;          // 解码前获取到音频的码率
     int m_output_sample_rate;       // 解码且重采样后的目标采样率
     int m_output_channels;          // 解码且重采样后的目标声道数
-    std::string m_error = "";
+    std::string m_error;
 };
 
 #endif //FPCALC_FPCALC_READER_H
